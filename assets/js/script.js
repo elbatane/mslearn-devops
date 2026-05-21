@@ -1,4 +1,29 @@
 $(function() {
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+
+        return new Promise(function(resolve, reject) {
+            var helper = document.createElement('textarea');
+            helper.value = text;
+            helper.setAttribute('readonly', '');
+            helper.style.position = 'absolute';
+            helper.style.left = '-9999px';
+            document.body.appendChild(helper);
+            helper.select();
+
+            try {
+                document.execCommand('copy');
+                resolve();
+            } catch (error) {
+                reject(error);
+            } finally {
+                document.body.removeChild(helper);
+            }
+        });
+    }
+
     var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
     $('article a').each(function() {
         var nextNode = this.nextSibling;
@@ -95,7 +120,7 @@ $(function() {
 
     $('pre').each(function(index) {
         var generatedId = 'codeBlock' + index;
-        var languageClass = $(this).children('code:first').attr('class').split(' ')[0];
+        var languageClass = (($(this).children('code:first').attr('class')) || '').split(' ')[0];
         var language = languageClass == 'language-sh' ? 'shell' :
             languageClass == 'language-js' ? 'javascript' :
             languageClass == 'language-xml' ? 'xml' :
@@ -127,6 +152,28 @@ $(function() {
         $(this).addClass('mt-0');
     });
 
-    hljs.initHighlightingOnLoad();
-    new ClipboardJS('.btn-code');
+    $(document).on('click', '.btn-code', function() {
+        var $button = $(this);
+        var target = $button.attr('data-clipboard-target');
+        var $source = $(target);
+
+        if (!$source.length) {
+            return;
+        }
+
+        copyText($source.text()).then(function() {
+            var originalHtml = $button.html();
+            $button.text('Copied');
+
+            window.setTimeout(function() {
+                $button.html(originalHtml);
+            }, 1500);
+        }).catch(function() {
+            $button.text('Copy failed');
+        });
+    });
+
+    if (window.hljs && typeof window.hljs.initHighlightingOnLoad === 'function') {
+        window.hljs.initHighlightingOnLoad();
+    }
 });
