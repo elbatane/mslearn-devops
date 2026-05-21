@@ -1,4 +1,12 @@
 $(function() {
+    var codeLanguageMap = {
+        'language-sh': 'shell',
+        'language-js': 'javascript',
+        'language-xml': 'xml',
+        'language-sql': 'sql',
+        'language-csharp': 'c#'
+    };
+
     function copyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
@@ -22,6 +30,21 @@ $(function() {
                 document.body.removeChild(helper);
             }
         });
+    }
+
+    function setCopyButtonLabel($button, label) {
+        $button.empty();
+
+        if (label === 'Copy') {
+            $button.append(
+                $('<i/>', {
+                    class: 'fa fa-files-o mr-2',
+                    'aria-hidden': 'true'
+                })
+            );
+        }
+
+        $button.append(document.createTextNode(label));
     }
 
     var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
@@ -52,7 +75,13 @@ $(function() {
 
     $('article img').each(function() {
         var src = $(this).attr('src');
-        $(this).wrap('<a href="' + src + '" target="_blank"></a>');
+        $(this).wrap(
+            $('<a>').attr({
+                href: src,
+                target: '_blank',
+                rel: 'noopener noreferrer'
+            })
+        );
     });
 
     $('article > h2').each(function() {
@@ -121,33 +150,23 @@ $(function() {
     $('pre').each(function(index) {
         var generatedId = 'codeBlock' + index;
         var languageClass = (($(this).children('code:first').attr('class')) || '').split(' ')[0];
-        var language = languageClass == 'language-sh' ? 'shell' :
-            languageClass == 'language-js' ? 'javascript' :
-            languageClass == 'language-xml' ? 'xml' :
-            languageClass == 'language-sql' ? 'sql' :
-            languageClass == 'language-csharp' ? 'c#' : 'code';
+        var language = codeLanguageMap[languageClass] || 'code';
         $(this).attr('id', generatedId);
         var header = $('<div/>', {
             class: 'code-header mt-3 mb-0 bg-light d-flex justify-content-between border',
         }).append(
             $('<span/>', {
                 class: 'mx-2 text-muted text-capitalize font-weight-light',
-                html: language
+                text: language
             })
         ).append(
             $('<button/>', {
                 class: 'm-0 btn btn-code btn-sm btn-light codeBtn rounded-0 border-left text-muted font-weight-light',
                 'data-clipboard-target': '#' + generatedId,
                 type: 'button'
-            }).append(
-                $('<i/>', {
-                    class: 'fa fa-files-o mr-2',
-                    'aria-hidden': 'true'
-                })
-            ).append(
-                'Copy'
-            )
+            })
         );
+        setCopyButtonLabel(header.find('.btn-code'), 'Copy');
         header.insertBefore($(this));
         $(this).addClass('mt-0');
     });
@@ -162,14 +181,13 @@ $(function() {
         }
 
         copyText($source.text()).then(function() {
-            var originalHtml = $button.html();
-            $button.text('Copied');
+            setCopyButtonLabel($button, 'Copied');
 
             window.setTimeout(function() {
-                $button.html(originalHtml);
+                setCopyButtonLabel($button, 'Copy');
             }, 1500);
         }).catch(function() {
-            $button.text('Copy failed');
+            setCopyButtonLabel($button, 'Copy failed');
         });
     });
 
