@@ -47,9 +47,8 @@ $(function() {
         $button.append(document.createTextNode(label));
     }
 
-    var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
-    $('article a').each(function() {
-        var nextNode = this.nextSibling;
+    function updateBlankTargetLink(link) {
+        var nextNode = link.nextSibling;
         if (!nextNode || nextNode.nodeType !== Node.TEXT_NODE) {
             return;
         }
@@ -59,18 +58,24 @@ $(function() {
             return;
         }
 
-        $(this).attr('target', '_blank');
+        var $link = $(link);
+        $link.attr('target', '_blank');
 
-        var rel = ($(this).attr('rel') || '').trim();
+        var rel = ($link.attr('rel') || '').trim();
         if (!/\bnoopener\b/.test(rel)) {
             rel = (rel ? rel + ' ' : '') + 'noopener';
         }
         if (!/\bnoreferrer\b/.test(rel)) {
             rel = rel + ' noreferrer';
         }
-        $(this).attr('rel', rel.trim());
+        $link.attr('rel', rel.trim());
 
         nextNode.nodeValue = nextText.replace(blankTargetMarker, '');
+    }
+
+    var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
+    $('article a').each(function() {
+        updateBlankTargetLink(this);
     });
 
     $('article img').each(function() {
@@ -162,7 +167,7 @@ $(function() {
         ).append(
             $('<button/>', {
                 class: 'm-0 btn btn-code btn-sm btn-light codeBtn rounded-0 border-left text-muted font-weight-light',
-                'data-clipboard-target': '#' + generatedId,
+                'data-code-block-id': generatedId,
                 type: 'button'
             })
         );
@@ -173,14 +178,14 @@ $(function() {
 
     $(document).on('click', '.btn-code', function() {
         var $button = $(this);
-        var target = $button.attr('data-clipboard-target');
-        var $source = $(target);
+        var sourceId = $button.attr('data-code-block-id');
+        var source = sourceId ? document.getElementById(sourceId) : null;
 
-        if (!$source.length) {
+        if (!source) {
             return;
         }
 
-        copyText($source.text()).then(function() {
+        copyText(source.textContent || '').then(function() {
             setCopyButtonLabel($button, 'Copied');
 
             window.setTimeout(function() {
