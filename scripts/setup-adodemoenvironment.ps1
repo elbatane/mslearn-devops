@@ -637,7 +637,7 @@ public interface IAuthService
     @"
 using adodemo.WebApp.Api.Models;
 using System.Collections.Concurrent;
-using System.Text;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
 namespace adodemo.WebApp.Api.Services;
@@ -645,12 +645,13 @@ namespace adodemo.WebApp.Api.Services;
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
+    private static readonly TimeSpan _socialLoginStateLifetime = TimeSpan.FromMinutes(10);
     private static readonly HashSet<string> _supportedProviders = new(StringComparer.OrdinalIgnoreCase)
     {
         "google",
         "facebook"
     };
-    private static readonly ConcurrentDictionary<string, string> _pendingSocialStates = new();
+    private static readonly ConcurrentDictionary<string, PendingSocialLoginState> _pendingSocialStates = new();
     private static readonly Dictionary<string, (string Password, string DisplayName)> _users = new()
     {
         ["demo@adodemo.com"] = ("Demo123!", "Demo User")
@@ -762,10 +763,13 @@ public class AuthService : IAuthService
         }
 
         var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
-        var statePayload = $"{normalizedProvider}:{normalizedReturnUrl}:{Guid.NewGuid():N}";
-        var state = Convert.ToBase64String(Encoding.UTF8.GetBytes(statePayload));
-
-        _pendingSocialStates[state] = normalizedReturnUrl;
+        var state = GenerateOpaqueStateToken();
+        _pendingSocialStates[state] = new PendingSocialLoginState
+        {
+            Provider = normalizedProvider,
+            ReturnUrl = normalizedReturnUrl,
+            ExpiresAt = DateTimeOffset.UtcNow.Add(_socialLoginStateLifetime)
+        };
 
         return new SocialLoginStartResult
         {
@@ -785,26 +789,36 @@ public class AuthService : IAuthService
             return BuildOAuthFailure("/", "Only Google and Facebook social login are currently supported.");
         }
 
-        if (string.IsNullOrWhiteSpace(state) || !_pendingSocialStates.TryRemove(state, out var returnUrl))
+        if (string.IsNullOrWhiteSpace(state) || !_pendingSocialStates.TryRemove(state, out var pendingState))
+        {
+            return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
+        }
+
+        if (pendingState.ExpiresAt < DateTimeOffset.UtcNow)
+        {
+            return BuildOAuthFailure(pendingState.ReturnUrl, "Your social login session expired. Please try again.");
+        }
+
+        if (!string.Equals(pendingState.Provider, normalizedProvider, StringComparison.Ordinal))
         {
             return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
         }
 
         if (!string.IsNullOrWhiteSpace(error))
         {
-            return BuildOAuthFailure(returnUrl, $"We couldn't sign you in with {normalizedProvider}. Please try again.");
+            return BuildOAuthFailure(pendingState.ReturnUrl, $"We couldn't sign you in with {normalizedProvider}. Please try again.");
         }
 
         if (string.IsNullOrWhiteSpace(code))
         {
-            return BuildOAuthFailure(returnUrl, "Social login failed because no authorization code was returned.");
+            return BuildOAuthFailure(pendingState.ReturnUrl, "Social login failed because no authorization code was returned.");
         }
 
         return new SocialLoginCallbackResult
         {
             Success = true,
-            ReturnUrl = returnUrl,
-            RedirectUrl = AppendQuery(returnUrl, $"auth=success&provider={Uri.EscapeDataString(normalizedProvider)}")
+            ReturnUrl = pendingState.ReturnUrl,
+            RedirectUrl = AppendQuery(pendingState.ReturnUrl, $"auth=success&provider={Uri.EscapeDataString(normalizedProvider)}")
         };
     }
     
@@ -833,6 +847,22 @@ public class AuthService : IAuthService
     private static string NormalizeReturnUrl(string? returnUrl)
     {
         if (string.IsNullOrWhiteSpace(returnUrl) || !returnUrl.StartsWith('/'))
+        {
+            return "/";
+        }
+
+        if (returnUrl.StartsWith("//") || returnUrl.StartsWith("/\\"))
+        {
+            return "/";
+        }
+
+        if (!Uri.TryCreate(returnUrl, UriKind.Relative, out _))
+        {
+            return "/";
+        }
+
+        var decodedReturnUrl = Uri.UnescapeDataString(returnUrl);
+        if (decodedReturnUrl.StartsWith("//") || decodedReturnUrl.StartsWith("/\\"))
         {
             return "/";
         }
@@ -869,6 +899,19 @@ public class AuthService : IAuthService
         }
 
         return $"https://www.facebook.com/v18.0/dialog/oauth?client_id=facebook-app-id&response_type=code&scope=email%2Cpublic_profile&redirect_uri={redirectUri}&state={encodedState}";
+    }
+
+    private static string GenerateOpaqueStateToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+    }
+
+    private sealed class PendingSocialLoginState
+    {
+        public string Provider { get; set; } = string.Empty;
+        public string ReturnUrl { get; set; } = "/";
+        public DateTimeOffset ExpiresAt { get; set; }
     }
     
     private static string GenerateToken()
@@ -1344,6 +1387,20 @@ public class AuthServiceTests
         Assert.True(result.Success);
         Assert.Contains("/checkout/shipping?cartId=123", result.RedirectUrl);
         Assert.Contains("auth=success", result.RedirectUrl);
+    }
+
+    [Fact]
+    public async Task CompleteSocialLogin_WithUnsafeReturnUrl_FallsBackToRoot()
+    {
+        // Arrange
+        var start = await _authService.StartSocialLoginAsync("google", "//evil.example/phish");
+
+        // Act
+        var result = await _authService.CompleteSocialLoginAsync("google", "auth-code", start.State, null);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.StartsWith("/?auth=success", result.RedirectUrl);
     }
 
     [Fact]
