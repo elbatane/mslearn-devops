@@ -11,6 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<CosmosDbService>();
 builder.Services.AddSingleton<OrderValidationService>();
+builder.Services.AddSingleton<CatalogSearchService>();
 
 var app = builder.Build();
 
@@ -77,7 +78,8 @@ app.MapGet("/", () =>
         <p>Use the links below to test core endpoints.</p>
         <ul>
             <li><a href="/health">GET /health</a> - service and Cosmos connectivity check</li>
-            <li><a href="/products">GET /products</a> - list products</li>
+            <li><a href="/products">GET /products</a> - list products (add <code>?hideOutOfStock=true</code> to filter)</li>
+            <li><a href="/search">Product Search</a> - browse products with out-of-stock indicators</li>
             <li><a href="/orders">GET /orders</a> - list orders</li>
             <li><a href="/swagger">Swagger UI</a> - interactive API explorer</li>
             <li><a href="/swagger/v1/swagger.json">OpenAPI JSON</a> - API schema</li>
@@ -104,11 +106,12 @@ app.MapGet("/health", async (CosmosDbService db) =>
         : Results.Json(new { status = "unhealthy", timestamp = DateTime.UtcNow }, statusCode: 503);
 });
 
-// GET /products — list all products
-app.MapGet("/products", async (CosmosDbService db) =>
+// GET /products — list all products, out-of-stock items sorted to bottom; supports ?hideOutOfStock=true
+app.MapGet("/products", async (CosmosDbService db, CatalogSearchService search, bool hideOutOfStock = false) =>
 {
     var products = await db.GetProductsAsync();
-    return Results.Ok(products);
+    var result = search.FilterAndSort(products, hideOutOfStock);
+    return Results.Ok(result);
 });
 
 // GET /products/{id} — get a single product by id
@@ -148,6 +151,69 @@ app.MapPost("/orders", async (Order order, CosmosDbService db, OrderValidationSe
 
     var created = await db.CreateOrderAsync(order);
     return Results.Created($"/orders/{created.Id}", created);
+});
+
+// GET /search — product search page with out-of-stock badge and filter
+app.MapGet("/search", async (CosmosDbService db, CatalogSearchService search, bool hideOutOfStock = false) =>
+{
+    var products = await db.GetProductsAsync();
+    var sorted = search.FilterAndSort(products, hideOutOfStock).ToList();
+
+    var checkedAttr = hideOutOfStock ? " checked" : "";
+
+    var cards = new System.Text.StringBuilder();
+    foreach (var p in sorted)
+    {
+        var badge = p.AvailableStock <= 0
+            ? """<span class="badge bg-secondary ms-2">Out of Stock</span>"""
+            : string.Empty;
+        var stockText = p.AvailableStock > 0
+            ? $"In stock: {p.AvailableStock}"
+            : "Unavailable";
+        cards.Append($"""
+            <div class="col-sm-6 col-lg-4 mb-4">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h5 class="card-title">{System.Net.WebUtility.HtmlEncode(p.Name)}{badge}</h5>
+                  <h6 class="card-subtitle mb-2 text-muted">{System.Net.WebUtility.HtmlEncode(p.Category)}</h6>
+                  <p class="card-text">{System.Net.WebUtility.HtmlEncode(p.Description)}</p>
+                  <p class="card-text"><strong>${p.Price:F2}</strong></p>
+                  <p class="card-text"><small class="text-muted">{stockText}</small></p>
+                </div>
+              </div>
+            </div>
+            """);
+    }
+
+    var html = $"""
+        <!doctype html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Product Search - Catalog API</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+        </head>
+        <body class="p-4">
+            <div class="container">
+                <h1 class="mb-3">Product Search</h1>
+                <form method="get" action="/search" class="mb-4">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="hideOutOfStock" value="true" id="hideOutOfStock"{checkedAttr} />
+                        <label class="form-check-label" for="hideOutOfStock">Hide out-of-stock items</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Apply Filter</button>
+                    <a href="/search" class="btn btn-outline-secondary ms-2">Reset</a>
+                </form>
+                <div class="row">
+                    {cards}
+                </div>
+            </div>
+        </body>
+        </html>
+        """;
+
+    return Results.Content(html, "text/html");
 });
 
 app.Run();
