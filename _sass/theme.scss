@@ -222,6 +222,14 @@ h6 {
   flex-grow: 1;
 }
 
+.toc-toggle {
+  margin: 1rem 0;
+}
+
+.toc-overlay-backdrop {
+  display: none;
+}
+
 body nav.toc a.nav-link,
 body nav.toc li.nav-item,
 body nav.toc ul.nav {
@@ -346,4 +354,62 @@ main .table-striped > tbody > tr:nth-of-type(odd) {
 
 main.extra-padding {
   padding-bottom: 200px;
+}
+
+@media (max-width: 575.98px) {
+  body.toc-overlay-open {
+    overflow: hidden;
+  }
+
+  .toc-toggle {
+    position: sticky;
+    top: 1rem;
+    z-index: 1031;
+  }
+
+  .toc-overlay-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 1030;
+  }
+
+  body.toc-overlay-open .toc-overlay-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .toc-sidebar {
+    min-height: 0;
+  }
+
+  .toc-sidebar nav.toc {
+    position: fixed !important;
+    inset: 0;
+    margin-top: 0 !important;
+    padding: 4.75rem 1rem 2rem;
+    background: #fff;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 0 0 2rem rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-1rem);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 1031;
+  }
+
+  body.toc-overlay-open .toc-sidebar nav.toc {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .toc-sidebar nav.toc > ul.nav {
+    padding-left: 0;
+  }
 }
