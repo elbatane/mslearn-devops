@@ -47,6 +47,8 @@ $(function() {
         $button.append(document.createTextNode(label));
     }
 
+    var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
+
     function updateBlankTargetLink(link) {
         var nextNode = link.nextSibling;
         if (!nextNode || nextNode.nodeType !== Node.TEXT_NODE) {
@@ -72,8 +74,6 @@ $(function() {
 
         nextNode.nodeValue = nextText.replace(blankTargetMarker, '');
     }
-
-    var blankTargetMarker = /\{:\s*target\s*=\s*"_blank"\s*\}/;
     $('article a').each(function() {
         updateBlankTargetLink(this);
     });
