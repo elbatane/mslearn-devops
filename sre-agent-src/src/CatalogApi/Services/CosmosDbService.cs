@@ -81,14 +81,14 @@ public class CosmosDbService
     {
         var products = new List<Product>
         {
-            new() { Name = "Wireless Keyboard",  Category = "Electronics", Description = "Ergonomic wireless keyboard with backlight",          Price = 79.99m,  Stock = 150 },
-            new() { Name = "USB-C Monitor",       Category = "Electronics", Description = "27-inch 4K USB-C monitor",                          Price = 449.99m, Stock = 45 },
-            new() { Name = "Standing Desk",        Category = "Furniture",   Description = "Electric height-adjustable standing desk",           Price = 599.99m, Stock = 30 },
-            new() { Name = "Desk Lamp",            Category = "Furniture",   Description = "LED desk lamp with adjustable brightness",           Price = 34.99m,  Stock = 200 },
-            new() { Name = "Webcam HD",            Category = "Electronics", Description = "1080p HD webcam with noise-canceling microphone",    Price = 89.99m,  Stock = 120 },
-            new() { Name = "Office Chair",         Category = "Furniture",   Description = "Mesh office chair with lumbar support",              Price = 349.99m, Stock = 25 },
-            new() { Name = "Laptop Stand",         Category = "Accessories", Description = "Aluminum laptop stand with ventilation",             Price = 49.99m,  Stock = 300 },
-            new() { Name = "Mouse Pad XL",         Category = "Accessories", Description = "Extended mouse pad with stitched edges",             Price = 19.99m,  Stock = 500 },
+            new() { Name = "Wireless Keyboard",  Category = "Electronics", Description = "Ergonomic wireless keyboard with backlight",          Price = 79.99m,  AvailableStock = 150 },
+            new() { Name = "USB-C Monitor",       Category = "Electronics", Description = "27-inch 4K USB-C monitor",                          Price = 449.99m, AvailableStock = 45 },
+            new() { Name = "Standing Desk",        Category = "Furniture",   Description = "Electric height-adjustable standing desk",           Price = 599.99m, AvailableStock = 30 },
+            new() { Name = "Desk Lamp",            Category = "Furniture",   Description = "LED desk lamp with adjustable brightness",           Price = 34.99m,  AvailableStock = 200 },
+            new() { Name = "Webcam HD",            Category = "Electronics", Description = "1080p HD webcam with noise-canceling microphone",    Price = 89.99m,  AvailableStock = 0 },
+            new() { Name = "Office Chair",         Category = "Furniture",   Description = "Mesh office chair with lumbar support",              Price = 349.99m, AvailableStock = 0 },
+            new() { Name = "Laptop Stand",         Category = "Accessories", Description = "Aluminum laptop stand with ventilation",             Price = 49.99m,  AvailableStock = 300 },
+            new() { Name = "Mouse Pad XL",         Category = "Accessories", Description = "Extended mouse pad with stitched edges",             Price = 19.99m,  AvailableStock = 500 },
         };
 
         foreach (var product in products)
