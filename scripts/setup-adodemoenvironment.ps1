@@ -763,6 +763,7 @@ public class AuthService : IAuthService
         }
 
         var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
+        var clientId = GetOAuthClientId(normalizedProvider);
         var state = GenerateOpaqueStateToken();
         _pendingSocialStates[state] = new PendingSocialLoginState
         {
@@ -775,7 +776,7 @@ public class AuthService : IAuthService
         {
             Success = true,
             State = state,
-            AuthorizationUrl = BuildAuthorizationUrl(normalizedProvider, state)
+            AuthorizationUrl = BuildAuthorizationUrl(normalizedProvider, state, clientId)
         };
     }
 
@@ -888,17 +889,39 @@ public class AuthService : IAuthService
         return $"{url}{separator}{query}";
     }
 
-    private static string BuildAuthorizationUrl(string provider, string state)
+    private static string BuildAuthorizationUrl(string provider, string state, string clientId)
     {
         var encodedState = Uri.EscapeDataString(state);
-        var redirectUri = Uri.EscapeDataString($"https://localhost:5001/api/auth/social/{provider}/callback");
+        var oauthBaseUrl = GetOAuthBaseUrl();
+        var redirectUri = Uri.EscapeDataString($"{oauthBaseUrl}/api/auth/social/{provider}/callback");
 
         if (provider == "google")
         {
-            return $"https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&response_type=code&scope=openid%20email%20profile&redirect_uri={redirectUri}&state={encodedState}";
+            return $"https://accounts.google.com/o/oauth2/v2/auth?client_id={Uri.EscapeDataString(clientId)}&response_type=code&scope=openid%20email%20profile&redirect_uri={redirectUri}&state={encodedState}";
         }
 
-        return $"https://www.facebook.com/v18.0/dialog/oauth?client_id=facebook-app-id&response_type=code&scope=email%2Cpublic_profile&redirect_uri={redirectUri}&state={encodedState}";
+        return $"https://www.facebook.com/v18.0/dialog/oauth?client_id={Uri.EscapeDataString(clientId)}&response_type=code&scope=email%2Cpublic_profile&redirect_uri={redirectUri}&state={encodedState}";
+    }
+
+    private static string GetOAuthClientId(string provider)
+    {
+        return provider switch
+        {
+            "google" => Environment.GetEnvironmentVariable("ADODEMO_GOOGLE_CLIENT_ID") ?? "sample-google-client-id",
+            "facebook" => Environment.GetEnvironmentVariable("ADODEMO_FACEBOOK_APP_ID") ?? "sample-facebook-app-id",
+            _ => string.Empty
+        };
+    }
+
+    private static string GetOAuthBaseUrl()
+    {
+        var configuredBaseUrl = Environment.GetEnvironmentVariable("ADODEMO_OAUTH_BASE_URL");
+        if (string.IsNullOrWhiteSpace(configuredBaseUrl) || !Uri.TryCreate(configuredBaseUrl, UriKind.Absolute, out _))
+        {
+            return "https://localhost:5001";
+        }
+
+        return configuredBaseUrl.TrimEnd('/');
     }
 
     private static string GenerateOpaqueStateToken()
