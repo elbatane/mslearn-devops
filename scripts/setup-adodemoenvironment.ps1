@@ -763,6 +763,7 @@ public class AuthService : IAuthService
         }
 
         var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
+        CleanupExpiredSocialLoginStates();
         var clientId = GetOAuthClientId(normalizedProvider);
         var state = GenerateOpaqueStateToken();
         _pendingSocialStates[state] = new PendingSocialLoginState
@@ -862,12 +863,6 @@ public class AuthService : IAuthService
             return "/";
         }
 
-        var decodedReturnUrl = Uri.UnescapeDataString(returnUrl);
-        if (decodedReturnUrl.StartsWith("//") || decodedReturnUrl.StartsWith("/\\"))
-        {
-            return "/";
-        }
-
         return returnUrl;
     }
 
@@ -928,6 +923,18 @@ public class AuthService : IAuthService
     {
         var bytes = RandomNumberGenerator.GetBytes(32);
         return Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+    }
+
+    private static void CleanupExpiredSocialLoginStates()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var state in _pendingSocialStates)
+        {
+            if (state.Value.ExpiresAt < now)
+            {
+                _pendingSocialStates.TryRemove(state.Key, out _);
+            }
+        }
     }
 
     private sealed class PendingSocialLoginState
