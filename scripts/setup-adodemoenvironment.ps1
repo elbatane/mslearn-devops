@@ -645,6 +645,7 @@ namespace adodemo.WebApp.Api.Services;
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
+    private const int _maxStateTokenLength = 128;
     private static readonly TimeSpan _socialLoginStateLifetime = TimeSpan.FromMinutes(10);
     private static readonly HashSet<string> _supportedProviders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -791,7 +792,7 @@ public class AuthService : IAuthService
             return BuildOAuthFailure("/", "Only Google and Facebook social login are currently supported.");
         }
 
-        if (string.IsNullOrWhiteSpace(state) || state.Length > 128)
+        if (string.IsNullOrWhiteSpace(state) || state.Length > _maxStateTokenLength)
         {
             return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
         }
