@@ -791,7 +791,12 @@ public class AuthService : IAuthService
             return BuildOAuthFailure("/", "Only Google and Facebook social login are currently supported.");
         }
 
-        if (string.IsNullOrWhiteSpace(state) || !_pendingSocialStates.TryRemove(state, out var pendingState))
+        if (string.IsNullOrWhiteSpace(state) || state.Length > 128)
+        {
+            return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
+        }
+
+        if (!_pendingSocialStates.TryRemove(state, out var pendingState))
         {
             return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
         }
@@ -928,7 +933,7 @@ public class AuthService : IAuthService
     private static void CleanupExpiredSocialLoginStates()
     {
         var now = DateTimeOffset.UtcNow;
-        foreach (var state in _pendingSocialStates)
+        foreach (var state in _pendingSocialStates.ToArray())
         {
             if (state.Value.ExpiresAt < now)
             {
