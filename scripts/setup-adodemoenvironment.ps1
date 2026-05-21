@@ -597,6 +597,22 @@ public class PasswordResetConfirmRequest
     public string Token { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
 }
+
+public class SocialLoginStartResult
+{
+    public bool Success { get; set; }
+    public string? AuthorizationUrl { get; set; }
+    public string? State { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+public class SocialLoginCallbackResult
+{
+    public bool Success { get; set; }
+    public string ReturnUrl { get; set; } = "/";
+    public string RedirectUrl { get; set; } = "/";
+    public string? ErrorMessage { get; set; }
+}
 "@ | Set-Content (Join-Path $apiPath "Models" "AuthModels.cs")
     
     # Auth Service Interface
@@ -611,6 +627,8 @@ public interface IAuthService
     Task<LoginResponse> RegisterAsync(RegisterRequest request);
     Task<bool> RequestPasswordResetAsync(string email);
     Task<bool> ResetPasswordAsync(string token, string newPassword);
+    Task<SocialLoginStartResult> StartSocialLoginAsync(string provider, string? returnUrl);
+    Task<SocialLoginCallbackResult> CompleteSocialLoginAsync(string provider, string? code, string? state, string? error);
     bool ValidateToken(string token);
 }
 "@ | Set-Content (Join-Path $apiPath "Services" "IAuthService.cs")
@@ -618,6 +636,8 @@ public interface IAuthService
     # Auth Service Implementation
     @"
 using adodemo.WebApp.Api.Models;
+using System.Collections.Concurrent;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace adodemo.WebApp.Api.Services;
@@ -625,6 +645,12 @@ namespace adodemo.WebApp.Api.Services;
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
+    private static readonly HashSet<string> _supportedProviders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "google",
+        "facebook"
+    };
+    private static readonly ConcurrentDictionary<string, string> _pendingSocialStates = new();
     private static readonly Dictionary<string, (string Password, string DisplayName)> _users = new()
     {
         ["demo@adodemo.com"] = ("Demo123!", "Demo User")
@@ -720,6 +746,67 @@ public class AuthService : IAuthService
         _logger.LogInformation("Password reset completed");
         return true;
     }
+
+    public async Task<SocialLoginStartResult> StartSocialLoginAsync(string provider, string? returnUrl)
+    {
+        await Task.Delay(100);
+
+        var normalizedProvider = NormalizeProvider(provider);
+        if (normalizedProvider == null)
+        {
+            return new SocialLoginStartResult
+            {
+                Success = false,
+                ErrorMessage = "Only Google and Facebook social login are currently supported."
+            };
+        }
+
+        var normalizedReturnUrl = NormalizeReturnUrl(returnUrl);
+        var statePayload = $"{normalizedProvider}:{normalizedReturnUrl}:{Guid.NewGuid():N}";
+        var state = Convert.ToBase64String(Encoding.UTF8.GetBytes(statePayload));
+
+        _pendingSocialStates[state] = normalizedReturnUrl;
+
+        return new SocialLoginStartResult
+        {
+            Success = true,
+            State = state,
+            AuthorizationUrl = BuildAuthorizationUrl(normalizedProvider, state)
+        };
+    }
+
+    public async Task<SocialLoginCallbackResult> CompleteSocialLoginAsync(string provider, string? code, string? state, string? error)
+    {
+        await Task.Delay(100);
+
+        var normalizedProvider = NormalizeProvider(provider);
+        if (normalizedProvider == null)
+        {
+            return BuildOAuthFailure("/", "Only Google and Facebook social login are currently supported.");
+        }
+
+        if (string.IsNullOrWhiteSpace(state) || !_pendingSocialStates.TryRemove(state, out var returnUrl))
+        {
+            return BuildOAuthFailure("/", "We couldn't verify your social login session. Please try again.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            return BuildOAuthFailure(returnUrl, $"We couldn't sign you in with {normalizedProvider}. Please try again.");
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return BuildOAuthFailure(returnUrl, "Social login failed because no authorization code was returned.");
+        }
+
+        return new SocialLoginCallbackResult
+        {
+            Success = true,
+            ReturnUrl = returnUrl,
+            RedirectUrl = AppendQuery(returnUrl, $"auth=success&provider={Uri.EscapeDataString(normalizedProvider)}")
+        };
+    }
     
     public bool ValidateToken(string token)
     {
@@ -731,6 +818,57 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(email)) return false;
         return Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+    }
+
+    private static string? NormalizeProvider(string provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            return null;
+        }
+
+        return _supportedProviders.Contains(provider) ? provider.ToLowerInvariant() : null;
+    }
+
+    private static string NormalizeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl) || !returnUrl.StartsWith('/'))
+        {
+            return "/";
+        }
+
+        return returnUrl;
+    }
+
+    private static SocialLoginCallbackResult BuildOAuthFailure(string returnUrl, string message)
+    {
+        var safeReturnUrl = NormalizeReturnUrl(returnUrl);
+        return new SocialLoginCallbackResult
+        {
+            Success = false,
+            ReturnUrl = safeReturnUrl,
+            ErrorMessage = message,
+            RedirectUrl = AppendQuery(safeReturnUrl, $"error={Uri.EscapeDataString(message)}")
+        };
+    }
+
+    private static string AppendQuery(string url, string query)
+    {
+        var separator = url.Contains('?') ? "&" : "?";
+        return $"{url}{separator}{query}";
+    }
+
+    private static string BuildAuthorizationUrl(string provider, string state)
+    {
+        var encodedState = Uri.EscapeDataString(state);
+        var redirectUri = Uri.EscapeDataString($"https://localhost:5001/api/auth/social/{provider}/callback");
+
+        if (provider == "google")
+        {
+            return $"https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&response_type=code&scope=openid%20email%20profile&redirect_uri={redirectUri}&state={encodedState}";
+        }
+
+        return $"https://www.facebook.com/v18.0/dialog/oauth?client_id=facebook-app-id&response_type=code&scope=email%2Cpublic_profile&redirect_uri={redirectUri}&state={encodedState}";
     }
     
     private static string GenerateToken()
@@ -808,6 +946,39 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
     
+    /// <summary>
+    /// Start social login with redirect-based OAuth flow
+    /// </summary>
+    [HttpGet("social/{provider}")]
+    [ProducesResponseType(StatusCodes.Status302Found)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> StartSocialLogin(string provider, [FromQuery] string? returnUrl = "/")
+    {
+        var result = await _authService.StartSocialLoginAsync(provider, returnUrl);
+
+        if (!result.Success || string.IsNullOrWhiteSpace(result.AuthorizationUrl))
+        {
+            return BadRequest(new { message = result.ErrorMessage ?? "Unable to start social login." });
+        }
+
+        return Redirect(result.AuthorizationUrl);
+    }
+
+    /// <summary>
+    /// Complete social login OAuth flow and redirect back to requested URL
+    /// </summary>
+    [HttpGet("social/{provider}/callback")]
+    [ProducesResponseType(StatusCodes.Status302Found)]
+    public async Task<IActionResult> SocialLoginCallback(
+        string provider,
+        [FromQuery] string? code,
+        [FromQuery] string? state,
+        [FromQuery] string? error)
+    {
+        var result = await _authService.CompleteSocialLoginAsync(provider, code, state, error);
+        return Redirect(result.RedirectUrl);
+    }
+
     /// <summary>
     /// Authenticate user with email and password
     /// </summary>
@@ -1143,6 +1314,62 @@ public class AuthServiceTests
         
         // Assert
         Assert.False(result);
+    }
+
+    [Theory]
+    [InlineData("google", "accounts.google.com")]
+    [InlineData("facebook", "facebook.com")]
+    public async Task StartSocialLogin_WithSupportedProvider_ReturnsRedirectUrl(string provider, string expectedHost)
+    {
+        // Act
+        var result = await _authService.StartSocialLoginAsync(provider, "/products/42");
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotNull(result.State);
+        Assert.NotNull(result.AuthorizationUrl);
+        Assert.Contains(expectedHost, result.AuthorizationUrl);
+    }
+
+    [Fact]
+    public async Task CompleteSocialLogin_PreservesReturnUrlAfterOAuth()
+    {
+        // Arrange
+        var start = await _authService.StartSocialLoginAsync("google", "/checkout/shipping?cartId=123");
+
+        // Act
+        var result = await _authService.CompleteSocialLoginAsync("google", "auth-code", start.State, null);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Contains("/checkout/shipping?cartId=123", result.RedirectUrl);
+        Assert.Contains("auth=success", result.RedirectUrl);
+    }
+
+    [Fact]
+    public async Task StartSocialLogin_WithUnsupportedProvider_ReturnsFriendlyError()
+    {
+        // Act
+        var result = await _authService.StartSocialLoginAsync("apple", "/");
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.Equal("Only Google and Facebook social login are currently supported.", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task CompleteSocialLogin_WithProviderError_ReturnsFriendlyErrorRedirect()
+    {
+        // Arrange
+        var start = await _authService.StartSocialLoginAsync("facebook", "/orders/123");
+
+        // Act
+        var result = await _authService.CompleteSocialLoginAsync("facebook", null, start.State, "access_denied");
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.Contains("/orders/123", result.RedirectUrl);
+        Assert.Contains("We%20couldn%27t%20sign%20you%20in%20with%20facebook", result.RedirectUrl);
     }
 }
 "@ | Set-Content (Join-Path $unitTestPath "AuthServiceTests.cs")
