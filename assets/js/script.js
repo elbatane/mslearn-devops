@@ -154,7 +154,8 @@ $(function() {
 
     $('pre').each(function(index) {
         var generatedId = 'codeBlock' + index;
-        var languageClass = (($(this).children('code:first').attr('class')) || '').split(' ')[0];
+        var codeClass = $(this).children('code:first').attr('class') || '';
+        var languageClass = codeClass.split(' ')[0];
         var language = codeLanguageMap[languageClass] || 'code';
         $(this).attr('id', generatedId);
         var header = $('<div/>', {
